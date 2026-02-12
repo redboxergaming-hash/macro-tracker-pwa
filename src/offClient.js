@@ -55,6 +55,7 @@ function normalizePer100g(product, barcode) {
   const kcalNormalized = kcal ?? (kj !== null ? kj / 4.184 : null);
 
   return normalizeCachedProduct({
+  return {
     barcode,
     productName: product?.product_name || 'Unknown product',
     brands: product?.brands || '',
@@ -69,6 +70,11 @@ function normalizePer100g(product, barcode) {
     source: 'Open Food Facts',
     fetchedAt: Date.now()
   });
+      f100g: pickFirstNumber(nutriments, ['fat_100g', 'fat'])
+    },
+    source: 'Open Food Facts',
+    fetchedAt: Date.now()
+  };
 }
 
 export async function lookupOpenFoodFacts(barcode) {

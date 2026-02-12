@@ -84,6 +84,8 @@ export function renderPersonPicker(persons, selectedId) {
 }
 
 
+}
+
 export function renderDashboard(person, date, entries) {
   const totals = sumEntries(entries);
   const remaining = person.kcalGoal - totals.kcal;
@@ -200,6 +202,7 @@ function renderFoodList(containerId, items, favoritesSet, emptyText) {
           <strong>${item.label}</strong>
           <div class="muted tiny">${item.groupLabel}</div>
           ${item.isGeneric ? `<div class="muted tiny">Generic built-in (approx.) · ${item.category || 'Uncategorized'}</div>` : ''}
+          ${item.isGeneric ? '<div class="muted tiny">Generic built-in (approx.)</div>' : ''}
         </div>
         <div class="suggestion-actions">
           <span class="star" data-action="toggle-favorite" data-food-id="${item.foodId}" role="button" aria-label="Toggle favorite">${star}</span>

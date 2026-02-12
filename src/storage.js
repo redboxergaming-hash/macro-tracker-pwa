@@ -1,5 +1,6 @@
 const DB_NAME = 'macroTrackerDB';
 const DB_VERSION = 4;
+const DB_VERSION = 3;
 
 function promisify(req) {
   return new Promise((resolve, reject) => {
@@ -132,6 +133,7 @@ export function openDb() {
 export async function seedSampleData() {
   const db = await openDb();
   const tx = db.transaction(['persons', 'entries', 'meta', 'favorites', 'recents', 'weightLogs'], 'readwrite');
+  const tx = db.transaction(['persons', 'entries', 'meta', 'favorites', 'recents'], 'readwrite');
   tx.objectStore('persons').clear();
   tx.objectStore('entries').clear();
   tx.objectStore('favorites').clear();
@@ -199,6 +201,7 @@ export async function upsertPerson(person) {
 export async function deletePersonCascade(personId) {
   const db = await openDb();
   const tx = db.transaction(['persons', 'entries', 'favorites', 'recents', 'weightLogs'], 'readwrite');
+  const tx = db.transaction(['persons', 'entries', 'favorites', 'recents'], 'readwrite');
   tx.objectStore('persons').delete(personId);
 
   const deleteByIndex = (storeName, indexName, keyRange) => {
@@ -237,6 +240,7 @@ export async function getEntriesForPersonDateRange(personId, startDate, endDate)
 
 export async function addEntry(entry) {
   const sanitizedEntry = normalizeEntryForStorage(entry);
+export async function addEntry(entry) {
   const db = await openDb();
   const tx = db.transaction(['entries', 'recents', 'meta'], 'readwrite');
   const stored = {
@@ -250,6 +254,10 @@ export async function addEntry(entry) {
     const recentsStore = tx.objectStore('recents');
     const byPersonFood = recentsStore.index('byPersonFood');
     const key = [sanitizedEntry.personId, sanitizedEntry.recentItem.foodId];
+  if (entry.recentItem) {
+    const recentsStore = tx.objectStore('recents');
+    const byPersonFood = recentsStore.index('byPersonFood');
+    const key = [entry.personId, entry.recentItem.foodId];
     const existingReq = byPersonFood.get(key);
     existingReq.onsuccess = () => {
       const existing = existingReq.result;
@@ -264,6 +272,12 @@ export async function addEntry(entry) {
         nutrition: sanitizedEntry.recentItem.nutrition,
         pieceGramHint: sanitizedEntry.recentItem.pieceGramHint ?? null,
         sourceType: sanitizedEntry.recentItem.sourceType,
+        personId: entry.personId,
+        foodId: entry.recentItem.foodId,
+        label: entry.recentItem.label,
+        nutrition: entry.recentItem.nutrition,
+        pieceGramHint: entry.recentItem.pieceGramHint ?? null,
+        sourceType: entry.recentItem.sourceType,
         usedAt: Date.now()
       });
     };
@@ -271,6 +285,8 @@ export async function addEntry(entry) {
 
   if (sanitizedEntry.lastPortionKey) {
     tx.objectStore('meta').put({ key: `lastPortion:${sanitizedEntry.lastPortionKey}`, value: Number(sanitizedEntry.amountGrams) });
+  if (entry.lastPortionKey) {
+    tx.objectStore('meta').put({ key: `lastPortion:${entry.lastPortionKey}`, value: Number(entry.amountGrams) });
   }
 
   await txDone(tx);
@@ -362,12 +378,16 @@ export async function exportAllData() {
   const tx = db.transaction(['persons', 'entries', 'productsCache', 'favorites', 'recents', 'weightLogs'], 'readonly');
 
   const [persons, entries, productsCache, favorites, recents, weightLogs] = await Promise.all([
+  const tx = db.transaction(['persons', 'entries', 'productsCache', 'favorites', 'recents'], 'readonly');
+
+  const [persons, entries, productsCache, favorites, recents] = await Promise.all([
     promisify(tx.objectStore('persons').getAll()),
     promisify(tx.objectStore('entries').getAll()),
     promisify(tx.objectStore('productsCache').getAll()),
     promisify(tx.objectStore('favorites').getAll()),
     promisify(tx.objectStore('recents').getAll()),
     promisify(tx.objectStore('weightLogs').getAll())
+    promisify(tx.objectStore('recents').getAll())
   ]);
 
   return {
@@ -379,6 +399,7 @@ export async function exportAllData() {
     favorites,
     recents,
     weightLogs
+    recents
   };
 }
 
@@ -401,6 +422,16 @@ export async function importAllData(payload) {
   const favorites = uniqueById(payload.favorites || []);
   const recents = uniqueById(payload.recents || []);
   const weightLogs = uniqueById(payload.weightLogs || []).map(normalizeWeightLogForImport).filter(Boolean);
+  const tx = db.transaction(['persons', 'entries', 'productsCache', 'favorites', 'recents', 'meta'], 'readwrite');
+
+  const storesToReset = ['persons', 'entries', 'productsCache', 'favorites', 'recents'];
+  storesToReset.forEach((storeName) => tx.objectStore(storeName).clear());
+
+  const persons = uniqueById(payload.persons || []);
+  const entries = uniqueById(payload.entries || []);
+  const productsCache = uniqueById(payload.productsCache || [], 'barcode');
+  const favorites = uniqueById(payload.favorites || []);
+  const recents = uniqueById(payload.recents || []);
 
   persons.forEach((item) => tx.objectStore('persons').put(item));
   entries.forEach((item) => tx.objectStore('entries').put(item));
@@ -419,6 +450,7 @@ export async function importAllData(payload) {
     favorites: favorites.length,
     recents: recents.length,
     weightLogs: weightLogs.length
+    recents: recents.length
   };
 }
 
@@ -426,6 +458,8 @@ export async function deleteAllData() {
   const db = await openDb();
   const tx = db.transaction(['persons', 'entries', 'productsCache', 'favorites', 'recents', 'weightLogs', 'meta'], 'readwrite');
   ['persons', 'entries', 'productsCache', 'favorites', 'recents', 'weightLogs', 'meta'].forEach((storeName) => {
+  const tx = db.transaction(['persons', 'entries', 'productsCache', 'favorites', 'recents', 'meta'], 'readwrite');
+  ['persons', 'entries', 'productsCache', 'favorites', 'recents', 'meta'].forEach((storeName) => {
     tx.objectStore(storeName).clear();
   });
   await txDone(tx);

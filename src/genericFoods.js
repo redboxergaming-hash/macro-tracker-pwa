@@ -1,4 +1,5 @@
 const baseGenericFoods = [
+export const genericFoods = [
   { id: 'gf_oats', name: 'Oats (dry)', kcal100g: 389, p100g: 17, c100g: 66, f100g: 7, pieceGramHint: null },
   { id: 'gf_rice_white_cooked', name: 'Rice, white (cooked)', kcal100g: 130, p100g: 2.7, c100g: 28, f100g: 0.3, pieceGramHint: null },
   { id: 'gf_rice_brown_cooked', name: 'Rice, brown (cooked)', kcal100g: 123, p100g: 2.7, c100g: 25.6, f100g: 1, pieceGramHint: null },

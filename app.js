@@ -6,6 +6,10 @@ import { startBarcodeScanner, stopBarcodeScanner } from './src/scanner.js';
 import {
   addEntry,
   addWeightLog,
+import { lookupOpenFoodFacts } from './src/offClient.js';
+import { startBarcodeScanner, stopBarcodeScanner } from './src/scanner.js';
+import {
+  addEntry,
   deleteAllData,
   deletePersonCascade,
   exportAllData,
@@ -47,6 +51,7 @@ import {
   renderInsightMetrics,
   renderNutritionOverview,
   setAnalyticsStatus,
+  renderScanResult,
   setPortionGrams,
   setScanStatus,
   showAddStatus
@@ -133,6 +138,9 @@ function aggregateMicronutrients(entries) {
     }));
 }
 
+  scannedProduct: null
+};
+
 function foodFromGeneric(item) {
   return {
     foodId: item.id,
@@ -143,6 +151,7 @@ function foodFromGeneric(item) {
     isGeneric: true,
     groupLabel: 'Built-in generic',
     category: item.category || null
+    groupLabel: 'Built-in generic'
   };
 }
 
@@ -301,6 +310,7 @@ function buildSuggestionPool(personId) {
   const generic = genericFoods
     .filter((item) => state.selectedGenericCategory === 'all' || item.category === state.selectedGenericCategory)
     .map((item) => ({ ...foodFromGeneric(item), groupLabel: 'Built-in generic' }));
+  const generic = genericFoods.map((item) => ({ ...foodFromGeneric(item), groupLabel: 'Built-in generic' }));
 
   const dedup = new Map();
   [...favorites, ...recents, ...generic].forEach((item) => {
@@ -334,6 +344,8 @@ async function loadAndRender() {
   if (addTime) addTime.value = addTime.value || nowTime();
   const weightDateInput = document.getElementById('weightDateInput');
   if (weightDateInput) weightDateInput.value = state.analyticsDate;
+  document.getElementById('datePicker').value = state.selectedDate;
+  document.getElementById('addTime').value = document.getElementById('addTime').value || nowTime();
 
   const entriesByPerson = {};
   for (const person of state.persons) {
@@ -368,6 +380,9 @@ async function loadAndRender() {
     renderAnalyticsChart([]);
     renderInsightMetrics(null);
     renderNutritionOverview([]);
+    filterSuggestions(document.getElementById('foodSearchInput').value || '', person.id);
+  } else {
+    renderDashboardEmpty();
   }
 }
 
@@ -489,6 +504,24 @@ async function logActiveFood() {
     showAddStatus('Could not log entry. Please use non-negative values.');
     return;
   }
+  await addEntry({
+    personId: usedPersonId,
+    date: entryDate,
+    time,
+    foodId: active.foodId,
+    foodName: active.label,
+    amountGrams: grams,
+    ...macros,
+    source,
+    lastPortionKey: active.lastPortionKey,
+    recentItem: {
+      foodId: active.foodId,
+      label: active.label,
+      nutrition: active.nutrition,
+      pieceGramHint: active.pieceGramHint,
+      sourceType: active.sourceType === 'favorite' ? 'generic' : active.sourceType
+    }
+  });
 
   showAddStatus(`Logged ${active.label} (${grams}g).`);
   closePortionDialog();
@@ -575,6 +608,7 @@ async function handleBarcodeDetected(barcode) {
 
   const cachedRaw = await getCachedProduct(barcode);
   const cached = normalizeCachedProduct(cachedRaw);
+  const cached = await getCachedProduct(barcode);
   if (cached) {
     state.scannedProduct = cached;
     renderScanResult(cached);
@@ -616,6 +650,7 @@ function toScannedFoodItem(product) {
       c100g: product.nutrition.c100g,
       f100g: product.nutrition.f100g,
       micronutrients: product.nutrition.micronutrients || null
+      f100g: product.nutrition.f100g
     },
     pieceGramHint: null,
     sourceType: 'barcode',
@@ -694,6 +729,7 @@ async function handleImportDataFile(file) {
   await loadAndRender();
   showSettingsDataStatus(
     `Import complete. Persons: ${summary.persons}, Entries: ${summary.entries}, Favorites: ${summary.favorites}, Recents: ${summary.recents}, Weight logs: ${summary.weightLogs}.`
+    `Import complete. Persons: ${summary.persons}, Entries: ${summary.entries}, Favorites: ${summary.favorites}, Recents: ${summary.recents}.`
   );
 }
 
@@ -763,16 +799,19 @@ function wireEvents() {
   };
 
   on('personPicker', 'change', async (e) => {
+  document.getElementById('personPicker').addEventListener('change', async (e) => {
     state.selectedPersonId = e.target.value || null;
     await loadAndRender();
   });
 
   on('datePicker', 'change', async (e) => {
+  document.getElementById('datePicker').addEventListener('change', async (e) => {
     state.selectedDate = e.target.value;
     await loadAndRender();
   });
 
   on('addPersonPicker', 'change', async (e) => {
+  document.getElementById('addPersonPicker').addEventListener('change', async (e) => {
     state.selectedPersonId = e.target.value || null;
     await loadAndRender();
   });
@@ -828,6 +867,8 @@ function wireEvents() {
 
   on('foodSearchInput', 'input', (e) => {
     const personId = document.getElementById('addPersonPicker')?.value || state.selectedPersonId;
+  document.getElementById('foodSearchInput').addEventListener('input', (e) => {
+    const personId = document.getElementById('addPersonPicker').value || state.selectedPersonId;
     if (!personId) return;
     filterSuggestions(e.target.value, personId);
   });
@@ -850,6 +891,13 @@ function wireEvents() {
   on('startScanBtn', 'click', async () => {
     const video = document.getElementById('scannerVideo');
     if (!video) return;
+  document.getElementById('addSuggestions').addEventListener('click', handleAddSuggestionClick);
+  document.getElementById('favoriteList').addEventListener('click', handleAddSuggestionClick);
+  document.getElementById('recentList').addEventListener('click', handleAddSuggestionClick);
+  document.getElementById('customFoodForm').addEventListener('submit', handleCustomFoodSubmit);
+
+  document.getElementById('startScanBtn').addEventListener('click', async () => {
+    const video = document.getElementById('scannerVideo');
     try {
       await startBarcodeScanner(video, handleBarcodeDetected, () => {});
       setScanStatus('Scanner active. Point camera at an EAN/UPC barcode.');
@@ -860,11 +908,13 @@ function wireEvents() {
   });
 
   on('stopScanBtn', 'click', () => {
+  document.getElementById('stopScanBtn').addEventListener('click', () => {
     stopBarcodeScanner();
     setScanStatus('Scanner stopped.');
   });
 
   on('scanResult', 'click', async (e) => {
+  document.getElementById('scanResult').addEventListener('click', async (e) => {
     const btn = e.target.closest('#logScannedProductBtn');
     if (!btn || !state.scannedProduct) return;
     await openPortionForItem(toScannedFoodItem(state.scannedProduct));
@@ -876,6 +926,12 @@ function wireEvents() {
   });
 
   on('portionPresetButtons', 'click', (e) => {
+  document.getElementById('copyPromptBtn').addEventListener('click', handleCopyPhotoPrompt);
+  document.getElementById('photoInput').addEventListener('change', (e) => {
+    handlePhotoSelected(e.target.files?.[0]);
+  });
+
+  document.getElementById('portionPresetButtons').addEventListener('click', (e) => {
     const btn = e.target.closest('button[data-action="set-portion"]');
     if (!btn) return;
     setPortionGrams(Number(btn.dataset.grams));
@@ -888,6 +944,14 @@ function wireEvents() {
   on('settingsPersons', 'click', handleSettingsActions);
 
   on('exportDataBtn', 'click', async () => {
+  document.getElementById('confirmPortionBtn').addEventListener('click', logActiveFood);
+  document.getElementById('cancelPortionBtn').addEventListener('click', closePortionDialog);
+
+  document.getElementById('personForm').addEventListener('submit', handlePersonSave);
+  document.getElementById('cancelEditBtn').addEventListener('click', () => fillPersonForm(null));
+  document.getElementById('settingsPersons').addEventListener('click', handleSettingsActions);
+
+  document.getElementById('exportDataBtn').addEventListener('click', async () => {
     try {
       await handleExportData();
     } catch (error) {
@@ -897,6 +961,7 @@ function wireEvents() {
   });
 
   on('importDataInput', 'change', async (e) => {
+  document.getElementById('importDataInput').addEventListener('change', async (e) => {
     try {
       await handleImportDataFile(e.target.files?.[0]);
     } catch (error) {
@@ -908,6 +973,7 @@ function wireEvents() {
   });
 
   on('deleteAllDataBtn', 'click', async () => {
+  document.getElementById('deleteAllDataBtn').addEventListener('click', async () => {
     try {
       await handleDeleteAllData();
     } catch (error) {
@@ -917,6 +983,7 @@ function wireEvents() {
   });
 
   on('seedBtn', 'click', async () => {
+  document.getElementById('seedBtn').addEventListener('click', async () => {
     const ok = window.confirm('Reset to sample data? This replaces current persons and entries.');
     if (!ok) return;
     await seedSampleData();
@@ -937,6 +1004,11 @@ function wireEvents() {
   });
 }
 
+
+  const installDialog = document.getElementById('installDialog');
+  document.getElementById('installHintBtn').addEventListener('click', () => installDialog.showModal());
+  document.getElementById('closeInstallDialog').addEventListener('click', () => installDialog.close());
+}
 
 await registerServiceWorker();
 wireEvents();
