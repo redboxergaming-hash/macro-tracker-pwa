@@ -1,5 +1,11 @@
 import { genericFoods } from './src/genericFoods.js';
 import { computeNutritionFromPer100g } from './src/math.js';
+import { drawWeeklyAnalyticsChart } from './src/analyticsChart.js';
+import { lookupOpenFoodFacts, normalizeCachedProduct } from './src/offClient.js';
+import { startBarcodeScanner, stopBarcodeScanner } from './src/scanner.js';
+import {
+  addEntry,
+  addWeightLog,
 import { lookupOpenFoodFacts } from './src/offClient.js';
 import { startBarcodeScanner, stopBarcodeScanner } from './src/scanner.js';
 import {
@@ -9,6 +15,9 @@ import {
   exportAllData,
   getCachedProduct,
   getEntriesForPersonDate,
+  getEntriesForPersonDateRange,
+  getWeightLogsByPerson,
+  getWeightLogsInRange,
   getFavorites,
   getLastPortion,
   getPersons,
@@ -36,6 +45,12 @@ import {
   renderSuggestions,
   renderFavoriteSection,
   renderRecentSection,
+  renderGenericCategoryFilters,
+  renderScanResult,
+  renderWeightLogs,
+  renderInsightMetrics,
+  renderNutritionOverview,
+  setAnalyticsStatus,
   renderScanResult,
   setPortionGrams,
   setScanStatus,
@@ -58,6 +73,71 @@ const state = {
   favoritesByPerson: {},
   recentsByPerson: {},
   activeFood: null,
+  scannedProduct: null,
+  weightLogsByPerson: {},
+  analyticsDate: new Date().toISOString().slice(0, 10),
+  analyticsRange: '1W',
+  analyticsPoints: [],
+  nutritionDate: new Date().toISOString().slice(0, 10),
+  selectedGenericCategory: 'all'
+};
+
+
+
+const GENERIC_FOOD_CATEGORIES = [
+  { value: 'all', label: 'All' },
+  { value: 'Fruits', label: 'Fruits' },
+  { value: 'Vegetables', label: 'Vegetables' },
+  { value: 'Meat', label: 'Meat' },
+  { value: 'Dairy', label: 'Dairy' },
+  { value: 'Grains', label: 'Grains' },
+  { value: 'Drinks', label: 'Drinks' }
+];
+
+const MICRONUTRIENT_CONFIG = [
+  { key: 'saturatedFat100g', label: 'Saturated fat', target: 20 },
+  { key: 'monounsaturatedFat100g', label: 'Monounsaturated fat', target: null },
+  { key: 'polyunsaturatedFat100g', label: 'Polyunsaturated fat', target: null },
+  { key: 'omega3Fat100g', label: 'Omega-3', target: 1.6 },
+  { key: 'omega6Fat100g', label: 'Omega-6', target: 17 },
+  { key: 'transFat100g', label: 'Trans fat', target: 2 }
+];
+
+function computeEntryMicronutrients(nutritionPer100g, grams) {
+  const result = {};
+  const safeGrams = Number(grams);
+  for (const item of MICRONUTRIENT_CONFIG) {
+    const per100g = Number(nutritionPer100g?.micronutrients?.[item.key]);
+    if (Number.isFinite(per100g) && Number.isFinite(safeGrams)) {
+      result[item.key] = Math.round(((per100g * safeGrams) / 100) * 100) / 100;
+    } else {
+      result[item.key] = null;
+    }
+  }
+  return result;
+}
+
+function aggregateMicronutrients(entries) {
+  const totals = MICRONUTRIENT_CONFIG.map((item) => ({ ...item, total: 0, hasData: false }));
+
+  entries.forEach((entry) => {
+    totals.forEach((item) => {
+      const value = Number(entry?.micronutrients?.[item.key]);
+      if (Number.isFinite(value)) {
+        item.total += value;
+        item.hasData = true;
+      }
+    });
+  });
+
+  return totals
+    .filter((item) => item.hasData)
+    .map((item) => ({
+      ...item,
+      percentage: Number.isFinite(item.target) && item.target > 0 ? (item.total / item.target) * 100 : null
+    }));
+}
+
   scannedProduct: null
 };
 
@@ -69,6 +149,8 @@ function foodFromGeneric(item) {
     pieceGramHint: item.pieceGramHint,
     sourceType: 'generic',
     isGeneric: true,
+    groupLabel: 'Built-in generic',
+    category: item.category || null
     groupLabel: 'Built-in generic'
   };
 }
@@ -76,6 +158,97 @@ function foodFromGeneric(item) {
 function nowTime() {
   return new Date().toTimeString().slice(0, 5);
 }
+
+function shiftIsoDate(isoDate, deltaDays) {
+  const date = new Date(`${isoDate}T00:00:00`);
+  date.setDate(date.getDate() + deltaDays);
+  return date.toISOString().slice(0, 10);
+}
+
+function buildWeeklyDateRange(endDate) {
+  return Array.from({ length: 7 }, (_, i) => shiftIsoDate(endDate, i - 6));
+}
+
+function safeMetric(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+async function buildWeeklyAnalyticsPoints(personId, endDate) {
+  const days = buildWeeklyDateRange(endDate);
+  const startDate = days[0];
+
+  const [entries, weightLogs] = await Promise.all([
+    getEntriesForPersonDateRange(personId, startDate, endDate),
+    getWeightLogsInRange(personId, startDate, endDate)
+  ]);
+
+  const caloriesByDate = new Map();
+  entries.forEach((entry) => {
+    const current = caloriesByDate.get(entry.date) || 0;
+    const kcal = Number(entry.kcal);
+    caloriesByDate.set(entry.date, current + (Number.isFinite(kcal) ? kcal : 0));
+  });
+
+  const weightByDate = new Map();
+  weightLogs.forEach((log) => {
+    weightByDate.set(log.date, log);
+  });
+
+  return days.map((date) => {
+    const log = weightByDate.get(date);
+    const calories = caloriesByDate.get(date);
+    return {
+      date,
+      calories: safeMetric(calories),
+      scaleWeight: safeMetric(log?.scaleWeight),
+      trendWeight: safeMetric(log?.trendWeight)
+    };
+  });
+}
+
+function renderAnalyticsChart(points) {
+  const canvas = document.getElementById('analyticsChart');
+  if (!canvas) return;
+  drawWeeklyAnalyticsChart(canvas, points);
+}
+
+function formatChange(value, unit) {
+  if (value === null) return 'Not enough data';
+  const rounded = unit === 'kg' ? Math.round(value * 10) / 10 : Math.round(value);
+  if (rounded > 0) return `increase ${rounded}${unit}`;
+  if (rounded < 0) return `decrease ${Math.abs(rounded)}${unit}`;
+  return `no change 0${unit}`;
+}
+
+function pointByDate(points, date) {
+  return points.find((p) => p.date === date) || null;
+}
+
+function computeChange(points, endDate, dayWindow, key) {
+  const startDate = shiftIsoDate(endDate, -(dayWindow - 1));
+  const start = pointByDate(points, startDate);
+  const end = pointByDate(points, endDate);
+  const startValue = Number(start?.[key]);
+  const endValue = Number(end?.[key]);
+  if (!Number.isFinite(startValue) || !Number.isFinite(endValue)) return null;
+  return endValue - startValue;
+}
+
+function calculateInsightMetrics(points, endDate) {
+  const cal3d = computeChange(points, endDate, 3, 'calories');
+  const cal7d = computeChange(points, endDate, 7, 'calories');
+  const wt3d = computeChange(points, endDate, 3, 'scaleWeight');
+  const wt7d = computeChange(points, endDate, 7, 'scaleWeight');
+
+  return {
+    cal3d: { text: formatChange(cal3d, '') },
+    cal7d: { text: formatChange(cal7d, '') },
+    wt3d: { text: formatChange(wt3d, 'kg') },
+    wt7d: { text: formatChange(wt7d, 'kg') }
+  };
+}
+
 
 function getTotalsByPerson(entriesByPerson) {
   return Object.fromEntries(
@@ -134,6 +307,9 @@ function sectionItems(personId) {
 
 function buildSuggestionPool(personId) {
   const { favorites, recents } = sectionItems(personId);
+  const generic = genericFoods
+    .filter((item) => state.selectedGenericCategory === 'all' || item.category === state.selectedGenericCategory)
+    .map((item) => ({ ...foodFromGeneric(item), groupLabel: 'Built-in generic' }));
   const generic = genericFoods.map((item) => ({ ...foodFromGeneric(item), groupLabel: 'Built-in generic' }));
 
   const dedup = new Map();
@@ -160,6 +336,14 @@ async function loadAndRender() {
   normalizeSelection();
   await loadPersonScopedCaches();
 
+  const datePicker = document.getElementById('datePicker');
+  if (datePicker) datePicker.value = state.selectedDate;
+  const nutritionDatePicker = document.getElementById('nutritionDatePicker');
+  if (nutritionDatePicker) nutritionDatePicker.value = state.nutritionDate;
+  const addTime = document.getElementById('addTime');
+  if (addTime) addTime.value = addTime.value || nowTime();
+  const weightDateInput = document.getElementById('weightDateInput');
+  if (weightDateInput) weightDateInput.value = state.analyticsDate;
   document.getElementById('datePicker').value = state.selectedDate;
   document.getElementById('addTime').value = document.getElementById('addTime').value || nowTime();
 
@@ -171,10 +355,31 @@ async function loadAndRender() {
   renderPersonsList(state.persons, getTotalsByPerson(entriesByPerson));
   renderPersonPicker(state.persons, state.selectedPersonId);
   renderSettingsPersons(state.persons);
+  renderGenericCategoryFilters(GENERIC_FOOD_CATEGORIES, state.selectedGenericCategory);
 
   const person = state.persons.find((p) => p.id === state.selectedPersonId);
   if (person) {
     renderDashboard(person, state.selectedDate, entriesByPerson[person.id] || []);
+    filterSuggestions(document.getElementById('foodSearchInput')?.value || '', person.id);
+
+    const logs = await getWeightLogsByPerson(person.id);
+    state.weightLogsByPerson[person.id] = logs;
+    renderWeightLogs(logs);
+
+    const analyticsPoints = await buildWeeklyAnalyticsPoints(person.id, state.analyticsDate);
+    state.analyticsPoints = analyticsPoints;
+    renderAnalyticsChart(analyticsPoints);
+    renderInsightMetrics(calculateInsightMetrics(analyticsPoints, state.analyticsDate));
+
+    const nutritionEntries = await getEntriesForPersonDate(person.id, state.nutritionDate);
+    renderNutritionOverview(aggregateMicronutrients(nutritionEntries));
+  } else {
+    renderDashboardEmpty();
+    renderWeightLogs([]);
+    state.analyticsPoints = [];
+    renderAnalyticsChart([]);
+    renderInsightMetrics(null);
+    renderNutritionOverview([]);
     filterSuggestions(document.getElementById('foodSearchInput').value || '', person.id);
   } else {
     renderDashboardEmpty();
@@ -274,6 +479,31 @@ async function logActiveFood() {
             ? 'Photo (manual via ChatGPT)'
             : 'Manual (Custom)';
 
+  try {
+    await addEntry({
+      personId: usedPersonId,
+      date: entryDate,
+      time,
+      foodId: active.foodId,
+      foodName: active.label,
+      amountGrams: grams,
+      ...macros,
+      micronutrients: computeEntryMicronutrients(active.nutrition, grams),
+      source,
+      lastPortionKey: active.lastPortionKey,
+      recentItem: {
+        foodId: active.foodId,
+        label: active.label,
+        nutrition: active.nutrition,
+        pieceGramHint: active.pieceGramHint,
+        sourceType: active.sourceType === 'favorite' ? 'generic' : active.sourceType
+      }
+    });
+  } catch (error) {
+    console.error(error);
+    showAddStatus('Could not log entry. Please use non-negative values.');
+    return;
+  }
   await addEntry({
     personId: usedPersonId,
     date: entryDate,
@@ -349,6 +579,14 @@ async function handleCustomFoodSubmit(e) {
     f100g: Number(document.getElementById('customF').value)
   };
 
+  const hasInvalidNutrition = [nutrition.kcal100g, nutrition.p100g, nutrition.c100g, nutrition.f100g].some(
+    (value) => !Number.isFinite(value) || value < 0
+  );
+  if (hasInvalidNutrition) {
+    window.alert('Please enter non-negative numbers for kcal and macros.');
+    return;
+  }
+
   const selectedSource = document.getElementById('customSource').value || 'custom';
 
   await openPortionForItem({
@@ -368,6 +606,8 @@ async function handleBarcodeDetected(barcode) {
 
   setScanStatus(`Scanned: ${barcode}`);
 
+  const cachedRaw = await getCachedProduct(barcode);
+  const cached = normalizeCachedProduct(cachedRaw);
   const cached = await getCachedProduct(barcode);
   if (cached) {
     state.scannedProduct = cached;
@@ -408,6 +648,8 @@ function toScannedFoodItem(product) {
       kcal100g: product.nutrition.kcal100g,
       p100g: product.nutrition.p100g,
       c100g: product.nutrition.c100g,
+      f100g: product.nutrition.f100g,
+      micronutrients: product.nutrition.micronutrients || null
       f100g: product.nutrition.f100g
     },
     pieceGramHint: null,
@@ -415,6 +657,34 @@ function toScannedFoodItem(product) {
     isGeneric: false,
     groupLabel: 'Barcode (Open Food Facts)'
   };
+}
+
+
+async function handleSaveWeightLog() {
+  const personId = document.getElementById('analyticsPersonPicker').value || state.selectedPersonId;
+  if (!personId) {
+    setAnalyticsStatus('Please add/select a person first.');
+    return;
+  }
+
+  const date = document.getElementById('weightDateInput').value || new Date().toISOString().slice(0, 10);
+  const weightValue = Number(document.getElementById('weightValueInput').value);
+  if (!Number.isFinite(weightValue) || weightValue <= 0) {
+    setAnalyticsStatus('Enter a valid positive weight.');
+    return;
+  }
+
+  await addWeightLog(personId, date, weightValue);
+  const logs = await getWeightLogsByPerson(personId);
+  state.weightLogsByPerson[personId] = logs;
+  renderWeightLogs(logs);
+
+  const analyticsPoints = await buildWeeklyAnalyticsPoints(personId, state.analyticsDate);
+  state.analyticsPoints = analyticsPoints;
+  renderAnalyticsChart(analyticsPoints);
+
+  const inRange = await getWeightLogsInRange(personId, '0000-01-01', '9999-12-31');
+  setAnalyticsStatus(`Saved weight for ${date}. Total logs: ${inRange.length}.`);
 }
 
 
@@ -447,6 +717,7 @@ async function handleImportDataFile(file) {
 
   const required = ['persons', 'entries', 'productsCache', 'favorites', 'recents'];
   const hasShape = required.every((key) => Array.isArray(parsed[key]));
+  if (!Array.isArray(parsed.weightLogs)) parsed.weightLogs = [];
   if (!hasShape) {
     window.alert('Invalid import file format.');
     return;
@@ -457,6 +728,7 @@ async function handleImportDataFile(file) {
   fillPersonForm(null);
   await loadAndRender();
   showSettingsDataStatus(
+    `Import complete. Persons: ${summary.persons}, Entries: ${summary.entries}, Favorites: ${summary.favorites}, Recents: ${summary.recents}, Weight logs: ${summary.weightLogs}.`
     `Import complete. Persons: ${summary.persons}, Entries: ${summary.entries}, Favorites: ${summary.favorites}, Recents: ${summary.recents}.`
   );
 }
@@ -468,6 +740,7 @@ async function handleDeleteAllData() {
   state.selectedPersonId = null;
   state.favoritesByPerson = {};
   state.recentsByPerson = {};
+  state.weightLogsByPerson = {};
   fillPersonForm(null);
   await loadAndRender();
   showSettingsDataStatus('All data deleted.');
@@ -519,27 +792,105 @@ function wireEvents() {
     }
   });
 
+  const on = (id, eventName, handler) => {
+    const node = document.getElementById(id);
+    if (node) node.addEventListener(eventName, handler);
+    return node;
+  };
+
+  on('personPicker', 'change', async (e) => {
   document.getElementById('personPicker').addEventListener('change', async (e) => {
     state.selectedPersonId = e.target.value || null;
     await loadAndRender();
   });
 
+  on('datePicker', 'change', async (e) => {
   document.getElementById('datePicker').addEventListener('change', async (e) => {
     state.selectedDate = e.target.value;
     await loadAndRender();
   });
 
+  on('addPersonPicker', 'change', async (e) => {
   document.getElementById('addPersonPicker').addEventListener('change', async (e) => {
     state.selectedPersonId = e.target.value || null;
     await loadAndRender();
   });
 
+  on('analyticsPersonPicker', 'change', async (e) => {
+    state.selectedPersonId = e.target.value || null;
+    await loadAndRender();
+  });
+
+  on('nutritionPersonPicker', 'change', async (e) => {
+    state.selectedPersonId = e.target.value || null;
+    await loadAndRender();
+  });
+
+  on('nutritionDatePicker', 'change', async (e) => {
+    state.nutritionDate = e.target.value;
+    await loadAndRender();
+  });
+
+  on('weightDateInput', 'change', async (e) => {
+    state.analyticsDate = e.target.value;
+    if (!state.selectedPersonId) return;
+    const points = await buildWeeklyAnalyticsPoints(state.selectedPersonId, state.analyticsDate);
+    state.analyticsPoints = points;
+    renderAnalyticsChart(points);
+    renderInsightMetrics(calculateInsightMetrics(points, state.analyticsDate));
+  });
+
+  on('analyticsRangeToggle', 'click', async (e) => {
+    const btn = e.target.closest('.range-btn');
+    if (!btn) return;
+    state.analyticsRange = btn.dataset.range;
+    document.querySelectorAll('#analyticsRangeToggle .range-btn').forEach((b) => b.classList.toggle('active', b === btn));
+
+    if (!state.selectedPersonId) return;
+    const points = await buildWeeklyAnalyticsPoints(state.selectedPersonId, state.analyticsDate);
+    state.analyticsPoints = points;
+    renderAnalyticsChart(points);
+    renderInsightMetrics(calculateInsightMetrics(points, state.analyticsDate));
+    if (state.analyticsRange !== '1W') {
+      setAnalyticsStatus('Range toggle placeholder: showing 1W dataset for now.');
+    }
+  });
+
+  on('saveWeightBtn', 'click', async () => {
+    try {
+      await handleSaveWeightLog();
+    } catch (error) {
+      console.error(error);
+      setAnalyticsStatus('Failed to save weight log.');
+    }
+  });
+
+  on('foodSearchInput', 'input', (e) => {
+    const personId = document.getElementById('addPersonPicker')?.value || state.selectedPersonId;
   document.getElementById('foodSearchInput').addEventListener('input', (e) => {
     const personId = document.getElementById('addPersonPicker').value || state.selectedPersonId;
     if (!personId) return;
     filterSuggestions(e.target.value, personId);
   });
 
+  on('genericCategoryFilters', 'click', (e) => {
+    const button = e.target.closest('button[data-action="filter-category"]');
+    if (!button) return;
+    state.selectedGenericCategory = button.dataset.category || 'all';
+    renderGenericCategoryFilters(GENERIC_FOOD_CATEGORIES, state.selectedGenericCategory);
+    const personId = document.getElementById('addPersonPicker')?.value || state.selectedPersonId;
+    if (!personId) return;
+    filterSuggestions(document.getElementById('foodSearchInput')?.value || '', personId);
+  });
+
+  on('addSuggestions', 'click', handleAddSuggestionClick);
+  on('favoriteList', 'click', handleAddSuggestionClick);
+  on('recentList', 'click', handleAddSuggestionClick);
+  on('customFoodForm', 'submit', handleCustomFoodSubmit);
+
+  on('startScanBtn', 'click', async () => {
+    const video = document.getElementById('scannerVideo');
+    if (!video) return;
   document.getElementById('addSuggestions').addEventListener('click', handleAddSuggestionClick);
   document.getElementById('favoriteList').addEventListener('click', handleAddSuggestionClick);
   document.getElementById('recentList').addEventListener('click', handleAddSuggestionClick);
@@ -556,17 +907,25 @@ function wireEvents() {
     }
   });
 
+  on('stopScanBtn', 'click', () => {
   document.getElementById('stopScanBtn').addEventListener('click', () => {
     stopBarcodeScanner();
     setScanStatus('Scanner stopped.');
   });
 
+  on('scanResult', 'click', async (e) => {
   document.getElementById('scanResult').addEventListener('click', async (e) => {
     const btn = e.target.closest('#logScannedProductBtn');
     if (!btn || !state.scannedProduct) return;
     await openPortionForItem(toScannedFoodItem(state.scannedProduct));
   });
 
+  on('copyPromptBtn', 'click', handleCopyPhotoPrompt);
+  on('photoInput', 'change', (e) => {
+    handlePhotoSelected(e.target.files?.[0]);
+  });
+
+  on('portionPresetButtons', 'click', (e) => {
   document.getElementById('copyPromptBtn').addEventListener('click', handleCopyPhotoPrompt);
   document.getElementById('photoInput').addEventListener('change', (e) => {
     handlePhotoSelected(e.target.files?.[0]);
@@ -577,6 +936,14 @@ function wireEvents() {
     if (!btn) return;
     setPortionGrams(Number(btn.dataset.grams));
   });
+  on('confirmPortionBtn', 'click', logActiveFood);
+  on('cancelPortionBtn', 'click', closePortionDialog);
+
+  on('personForm', 'submit', handlePersonSave);
+  on('cancelEditBtn', 'click', () => fillPersonForm(null));
+  on('settingsPersons', 'click', handleSettingsActions);
+
+  on('exportDataBtn', 'click', async () => {
   document.getElementById('confirmPortionBtn').addEventListener('click', logActiveFood);
   document.getElementById('cancelPortionBtn').addEventListener('click', closePortionDialog);
 
@@ -593,6 +960,7 @@ function wireEvents() {
     }
   });
 
+  on('importDataInput', 'change', async (e) => {
   document.getElementById('importDataInput').addEventListener('change', async (e) => {
     try {
       await handleImportDataFile(e.target.files?.[0]);
@@ -604,6 +972,7 @@ function wireEvents() {
     }
   });
 
+  on('deleteAllDataBtn', 'click', async () => {
   document.getElementById('deleteAllDataBtn').addEventListener('click', async () => {
     try {
       await handleDeleteAllData();
@@ -613,6 +982,7 @@ function wireEvents() {
     }
   });
 
+  on('seedBtn', 'click', async () => {
   document.getElementById('seedBtn').addEventListener('click', async () => {
     const ok = window.confirm('Reset to sample data? This replaces current persons and entries.');
     if (!ok) return;
@@ -620,6 +990,20 @@ function wireEvents() {
     fillPersonForm(null);
     await loadAndRender();
   });
+
+  window.addEventListener('resize', () => {
+    renderAnalyticsChart(state.analyticsPoints || []);
+  });
+
+  const installDialog = document.getElementById('installDialog');
+  on('installHintBtn', 'click', () => {
+    if (installDialog) installDialog.showModal();
+  });
+  on('closeInstallDialog', 'click', () => {
+    if (installDialog) installDialog.close();
+  });
+}
+
 
   const installDialog = document.getElementById('installDialog');
   document.getElementById('installHintBtn').addEventListener('click', () => installDialog.showModal());

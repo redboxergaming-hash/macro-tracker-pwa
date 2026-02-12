@@ -13,6 +13,40 @@ function pickFirstNumber(obj, keys) {
   return null;
 }
 
+function normalizeMicronutrientsPer100g(nutriments) {
+  return {
+    saturatedFat100g: pickFirstNumber(nutriments, ['saturated-fat_100g', 'saturated-fat']),
+    monounsaturatedFat100g: pickFirstNumber(nutriments, ['monounsaturated-fat_100g', 'monounsaturated-fat']),
+    polyunsaturatedFat100g: pickFirstNumber(nutriments, ['polyunsaturated-fat_100g', 'polyunsaturated-fat']),
+    omega3Fat100g: pickFirstNumber(nutriments, ['omega-3-fat_100g', 'omega-3-fat']),
+    omega6Fat100g: pickFirstNumber(nutriments, ['omega-6-fat_100g', 'omega-6-fat']),
+    transFat100g: pickFirstNumber(nutriments, ['trans-fat_100g', 'trans-fat'])
+  };
+}
+
+export function normalizeCachedProduct(product) {
+  if (!product) return null;
+  const nutrition = product.nutrition || {};
+
+  return {
+    ...product,
+    nutrition: {
+      kcal100g: parseNumber(nutrition.kcal100g),
+      p100g: parseNumber(nutrition.p100g),
+      c100g: parseNumber(nutrition.c100g),
+      f100g: parseNumber(nutrition.f100g),
+      micronutrients: {
+        saturatedFat100g: parseNumber(nutrition?.micronutrients?.saturatedFat100g),
+        monounsaturatedFat100g: parseNumber(nutrition?.micronutrients?.monounsaturatedFat100g),
+        polyunsaturatedFat100g: parseNumber(nutrition?.micronutrients?.polyunsaturatedFat100g),
+        omega3Fat100g: parseNumber(nutrition?.micronutrients?.omega3Fat100g),
+        omega6Fat100g: parseNumber(nutrition?.micronutrients?.omega6Fat100g),
+        transFat100g: parseNumber(nutrition?.micronutrients?.transFat100g)
+      }
+    }
+  };
+}
+
 function normalizePer100g(product, barcode) {
   const nutriments = product?.nutriments || {};
 
@@ -20,6 +54,7 @@ function normalizePer100g(product, barcode) {
   const kj = pickFirstNumber(nutriments, ['energy-kj_100g', 'energy-kj']);
   const kcalNormalized = kcal ?? (kj !== null ? kj / 4.184 : null);
 
+  return normalizeCachedProduct({
   return {
     barcode,
     productName: product?.product_name || 'Unknown product',
@@ -29,6 +64,12 @@ function normalizePer100g(product, barcode) {
       kcal100g: kcalNormalized,
       p100g: pickFirstNumber(nutriments, ['proteins_100g', 'proteins']),
       c100g: pickFirstNumber(nutriments, ['carbohydrates_100g', 'carbohydrates']),
+      f100g: pickFirstNumber(nutriments, ['fat_100g', 'fat']),
+      micronutrients: normalizeMicronutrientsPer100g(nutriments)
+    },
+    source: 'Open Food Facts',
+    fetchedAt: Date.now()
+  });
       f100g: pickFirstNumber(nutriments, ['fat_100g', 'fat'])
     },
     source: 'Open Food Facts',

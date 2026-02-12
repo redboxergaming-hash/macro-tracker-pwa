@@ -1,3 +1,4 @@
+const baseGenericFoods = [
 export const genericFoods = [
   { id: 'gf_oats', name: 'Oats (dry)', kcal100g: 389, p100g: 17, c100g: 66, f100g: 7, pieceGramHint: null },
   { id: 'gf_rice_white_cooked', name: 'Rice, white (cooked)', kcal100g: 130, p100g: 2.7, c100g: 28, f100g: 0.3, pieceGramHint: null },
@@ -59,3 +60,21 @@ export const genericFoods = [
   { id: 'gf_juice_orange', name: 'Orange juice', kcal100g: 45, p100g: 0.7, c100g: 10.4, f100g: 0.2, pieceGramHint: 250 },
   { id: 'gf_soda_regular', name: 'Soda (regular)', kcal100g: 42, p100g: 0, c100g: 10.6, f100g: 0, pieceGramHint: 330 }
 ];
+
+
+function detectGenericCategory(item) {
+  const id = item.id || '';
+
+  if (id.includes('juice') || id.includes('soda')) return 'Drinks';
+  if (id.includes('banana') || id.includes('apple') || id.includes('orange') || id.includes('berries') || id.includes('avocado')) return 'Fruits';
+  if (id.includes('broccoli') || id.includes('spinach') || id.includes('carrot') || id.includes('tomato') || id.includes('cucumber') || id.includes('potato')) return 'Vegetables';
+  if (id.includes('chicken') || id.includes('turkey') || id.includes('beef') || id.includes('salmon') || id.includes('tuna') || id.includes('shrimp') || id.includes('egg') || id.includes('burger')) return 'Meat';
+  if (id.includes('milk') || id.includes('yogurt') || id.includes('skyr') || id.includes('cottage') || id.includes('cheddar') || id.includes('butter') || id.includes('ice_cream')) return 'Dairy';
+  if (id.includes('tofu') || id.includes('lentils') || id.includes('chickpeas') || id.includes('beans') || id.includes('hummus') || id.includes('almonds') || id.includes('walnuts') || id.includes('chia') || id.includes('olive_oil') || id.includes('peanut_butter') || id.includes('protein_powder') || id.includes('protein_bar')) return 'Meat';
+  return 'Grains';
+}
+
+export const genericFoods = baseGenericFoods.map((item) => ({
+  ...item,
+  category: detectGenericCategory(item)
+}));
