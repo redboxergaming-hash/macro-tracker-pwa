@@ -326,10 +326,12 @@ async function loadAndRender() {
   normalizeSelection();
   await loadPersonScopedCaches();
 
-  document.getElementById('datePicker').value = state.selectedDate;
+  const datePicker = document.getElementById('datePicker');
+  if (datePicker) datePicker.value = state.selectedDate;
   const nutritionDatePicker = document.getElementById('nutritionDatePicker');
   if (nutritionDatePicker) nutritionDatePicker.value = state.nutritionDate;
-  document.getElementById('addTime').value = document.getElementById('addTime').value || nowTime();
+  const addTime = document.getElementById('addTime');
+  if (addTime) addTime.value = addTime.value || nowTime();
   const weightDateInput = document.getElementById('weightDateInput');
   if (weightDateInput) weightDateInput.value = state.analyticsDate;
 
@@ -346,7 +348,7 @@ async function loadAndRender() {
   const person = state.persons.find((p) => p.id === state.selectedPersonId);
   if (person) {
     renderDashboard(person, state.selectedDate, entriesByPerson[person.id] || []);
-    filterSuggestions(document.getElementById('foodSearchInput').value || '', person.id);
+    filterSuggestions(document.getElementById('foodSearchInput')?.value || '', person.id);
 
     const logs = await getWeightLogsByPerson(person.id);
     state.weightLogsByPerson[person.id] = logs;
@@ -754,37 +756,43 @@ function wireEvents() {
     }
   });
 
-  document.getElementById('personPicker').addEventListener('change', async (e) => {
+  const on = (id, eventName, handler) => {
+    const node = document.getElementById(id);
+    if (node) node.addEventListener(eventName, handler);
+    return node;
+  };
+
+  on('personPicker', 'change', async (e) => {
     state.selectedPersonId = e.target.value || null;
     await loadAndRender();
   });
 
-  document.getElementById('datePicker').addEventListener('change', async (e) => {
+  on('datePicker', 'change', async (e) => {
     state.selectedDate = e.target.value;
     await loadAndRender();
   });
 
-  document.getElementById('addPersonPicker').addEventListener('change', async (e) => {
+  on('addPersonPicker', 'change', async (e) => {
     state.selectedPersonId = e.target.value || null;
     await loadAndRender();
   });
 
-  document.getElementById('analyticsPersonPicker').addEventListener('change', async (e) => {
+  on('analyticsPersonPicker', 'change', async (e) => {
     state.selectedPersonId = e.target.value || null;
     await loadAndRender();
   });
 
-  document.getElementById('nutritionPersonPicker').addEventListener('change', async (e) => {
+  on('nutritionPersonPicker', 'change', async (e) => {
     state.selectedPersonId = e.target.value || null;
     await loadAndRender();
   });
 
-  document.getElementById('nutritionDatePicker').addEventListener('change', async (e) => {
+  on('nutritionDatePicker', 'change', async (e) => {
     state.nutritionDate = e.target.value;
     await loadAndRender();
   });
 
-  document.getElementById('weightDateInput').addEventListener('change', async (e) => {
+  on('weightDateInput', 'change', async (e) => {
     state.analyticsDate = e.target.value;
     if (!state.selectedPersonId) return;
     const points = await buildWeeklyAnalyticsPoints(state.selectedPersonId, state.analyticsDate);
@@ -793,7 +801,7 @@ function wireEvents() {
     renderInsightMetrics(calculateInsightMetrics(points, state.analyticsDate));
   });
 
-  document.getElementById('analyticsRangeToggle').addEventListener('click', async (e) => {
+  on('analyticsRangeToggle', 'click', async (e) => {
     const btn = e.target.closest('.range-btn');
     if (!btn) return;
     state.analyticsRange = btn.dataset.range;
@@ -809,7 +817,7 @@ function wireEvents() {
     }
   });
 
-  document.getElementById('saveWeightBtn').addEventListener('click', async () => {
+  on('saveWeightBtn', 'click', async () => {
     try {
       await handleSaveWeightLog();
     } catch (error) {
@@ -818,29 +826,30 @@ function wireEvents() {
     }
   });
 
-  document.getElementById('foodSearchInput').addEventListener('input', (e) => {
-    const personId = document.getElementById('addPersonPicker').value || state.selectedPersonId;
+  on('foodSearchInput', 'input', (e) => {
+    const personId = document.getElementById('addPersonPicker')?.value || state.selectedPersonId;
     if (!personId) return;
     filterSuggestions(e.target.value, personId);
   });
 
-  document.getElementById('genericCategoryFilters').addEventListener('click', (e) => {
+  on('genericCategoryFilters', 'click', (e) => {
     const button = e.target.closest('button[data-action="filter-category"]');
     if (!button) return;
     state.selectedGenericCategory = button.dataset.category || 'all';
     renderGenericCategoryFilters(GENERIC_FOOD_CATEGORIES, state.selectedGenericCategory);
-    const personId = document.getElementById('addPersonPicker').value || state.selectedPersonId;
+    const personId = document.getElementById('addPersonPicker')?.value || state.selectedPersonId;
     if (!personId) return;
-    filterSuggestions(document.getElementById('foodSearchInput').value || '', personId);
+    filterSuggestions(document.getElementById('foodSearchInput')?.value || '', personId);
   });
 
-  document.getElementById('addSuggestions').addEventListener('click', handleAddSuggestionClick);
-  document.getElementById('favoriteList').addEventListener('click', handleAddSuggestionClick);
-  document.getElementById('recentList').addEventListener('click', handleAddSuggestionClick);
-  document.getElementById('customFoodForm').addEventListener('submit', handleCustomFoodSubmit);
+  on('addSuggestions', 'click', handleAddSuggestionClick);
+  on('favoriteList', 'click', handleAddSuggestionClick);
+  on('recentList', 'click', handleAddSuggestionClick);
+  on('customFoodForm', 'submit', handleCustomFoodSubmit);
 
-  document.getElementById('startScanBtn').addEventListener('click', async () => {
+  on('startScanBtn', 'click', async () => {
     const video = document.getElementById('scannerVideo');
+    if (!video) return;
     try {
       await startBarcodeScanner(video, handleBarcodeDetected, () => {});
       setScanStatus('Scanner active. Point camera at an EAN/UPC barcode.');
@@ -850,35 +859,35 @@ function wireEvents() {
     }
   });
 
-  document.getElementById('stopScanBtn').addEventListener('click', () => {
+  on('stopScanBtn', 'click', () => {
     stopBarcodeScanner();
     setScanStatus('Scanner stopped.');
   });
 
-  document.getElementById('scanResult').addEventListener('click', async (e) => {
+  on('scanResult', 'click', async (e) => {
     const btn = e.target.closest('#logScannedProductBtn');
     if (!btn || !state.scannedProduct) return;
     await openPortionForItem(toScannedFoodItem(state.scannedProduct));
   });
 
-  document.getElementById('copyPromptBtn').addEventListener('click', handleCopyPhotoPrompt);
-  document.getElementById('photoInput').addEventListener('change', (e) => {
+  on('copyPromptBtn', 'click', handleCopyPhotoPrompt);
+  on('photoInput', 'change', (e) => {
     handlePhotoSelected(e.target.files?.[0]);
   });
 
-  document.getElementById('portionPresetButtons').addEventListener('click', (e) => {
+  on('portionPresetButtons', 'click', (e) => {
     const btn = e.target.closest('button[data-action="set-portion"]');
     if (!btn) return;
     setPortionGrams(Number(btn.dataset.grams));
   });
-  document.getElementById('confirmPortionBtn').addEventListener('click', logActiveFood);
-  document.getElementById('cancelPortionBtn').addEventListener('click', closePortionDialog);
+  on('confirmPortionBtn', 'click', logActiveFood);
+  on('cancelPortionBtn', 'click', closePortionDialog);
 
-  document.getElementById('personForm').addEventListener('submit', handlePersonSave);
-  document.getElementById('cancelEditBtn').addEventListener('click', () => fillPersonForm(null));
-  document.getElementById('settingsPersons').addEventListener('click', handleSettingsActions);
+  on('personForm', 'submit', handlePersonSave);
+  on('cancelEditBtn', 'click', () => fillPersonForm(null));
+  on('settingsPersons', 'click', handleSettingsActions);
 
-  document.getElementById('exportDataBtn').addEventListener('click', async () => {
+  on('exportDataBtn', 'click', async () => {
     try {
       await handleExportData();
     } catch (error) {
@@ -887,7 +896,7 @@ function wireEvents() {
     }
   });
 
-  document.getElementById('importDataInput').addEventListener('change', async (e) => {
+  on('importDataInput', 'change', async (e) => {
     try {
       await handleImportDataFile(e.target.files?.[0]);
     } catch (error) {
@@ -898,7 +907,7 @@ function wireEvents() {
     }
   });
 
-  document.getElementById('deleteAllDataBtn').addEventListener('click', async () => {
+  on('deleteAllDataBtn', 'click', async () => {
     try {
       await handleDeleteAllData();
     } catch (error) {
@@ -907,7 +916,7 @@ function wireEvents() {
     }
   });
 
-  document.getElementById('seedBtn').addEventListener('click', async () => {
+  on('seedBtn', 'click', async () => {
     const ok = window.confirm('Reset to sample data? This replaces current persons and entries.');
     if (!ok) return;
     await seedSampleData();
@@ -920,9 +929,14 @@ function wireEvents() {
   });
 
   const installDialog = document.getElementById('installDialog');
-  document.getElementById('installHintBtn').addEventListener('click', () => installDialog.showModal());
-  document.getElementById('closeInstallDialog').addEventListener('click', () => installDialog.close());
+  on('installHintBtn', 'click', () => {
+    if (installDialog) installDialog.showModal();
+  });
+  on('closeInstallDialog', 'click', () => {
+    if (installDialog) installDialog.close();
+  });
 }
+
 
 await registerServiceWorker();
 wireEvents();
