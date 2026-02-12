@@ -152,8 +152,9 @@ function nowTime() {
 }
 
 function shiftIsoDate(isoDate, deltaDays) {
-  const date = new Date(`${isoDate}T00:00:00`);
-  date.setDate(date.getDate() + deltaDays);
+  const [year, month, day] = isoDate.split('-').map((part) => Number.parseInt(part, 10));
+  const date = new Date(Date.UTC(year, month - 1, day));
+  date.setUTCDate(date.getUTCDate() + deltaDays);
   return date.toISOString().slice(0, 10);
 }
 
