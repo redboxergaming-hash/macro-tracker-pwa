@@ -3,24 +3,41 @@
 Privacy-first calorie and macro tracker built as a static Web App / PWA for iPhone Safari install.
 
 ## Status
-This repository currently contains **Commit 7** scope:
+This repository currently contains **Commit 8** scope:
 - Persons CRUD with cascade deletes
 - Daily dashboard totals
 - Manual add with favorites/recent
 - Export / Import / Delete-all tools
 - PWA manifest + service worker offline shell
 - Barcode scanning + Open Food Facts integration with local cache
+- Photo workflow (manual via ChatGPT prompt copy)
 
-## Architecture overview (Commit 7)
+## Architecture overview (Commit 8)
 - **Frontend**: vanilla JavaScript (ES modules), no framework.
 - **Storage**: IndexedDB (`src/storage.js`) for persons, entries, products cache, favorites, recents, and meta.
 - **Barcode stack**:
   - `src/scanner.js` for camera scanning via ZXing-js.
   - `src/offClient.js` for Open Food Facts product lookup and nutrition normalization.
-  - cached normalized barcode results in `productsCache` for offline re-use.
+- **Photo workflow**:
+  - local image capture/select for preview only.
+  - user-driven ChatGPT app workflow via copied prompt (no automated AI recognition).
 - **PWA layer**:
   - `manifest.json` for install metadata.
   - `service-worker.js` for offline shell caching and runtime strategies.
+
+## Photo workflow (Commit 8)
+Photo tab includes:
+- take/select photo from camera or gallery
+- local preview in app
+- **Copy ChatGPT Prompt** button with exact prompt text
+- instructions:
+  1. Open ChatGPT app
+  2. Upload photo
+  3. Paste prompt
+  4. Return and log manually
+
+Manual logging supports source label:
+- `Photo (manual via ChatGPT)`
 
 ## Barcode flow (Commit 7)
 1. Open **Scan** tab and start camera scanning.

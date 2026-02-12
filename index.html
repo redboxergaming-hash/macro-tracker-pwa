@@ -21,6 +21,7 @@
         <button data-route="dashboard" class="tab">Dashboard</button>
         <button data-route="add" class="tab">Add Entry</button>
         <button data-route="scan" class="tab">Scan</button>
+        <button data-route="photo" class="tab">Photo</button>
         <button data-route="settings" class="tab">Settings</button>
       </nav>
 
@@ -90,6 +91,13 @@
                 <label>C/100g <input id="customC" type="number" step="0.1" min="0" required /></label>
                 <label>F/100g <input id="customF" type="number" step="0.1" min="0" required /></label>
               </div>
+              <label>
+                Source label
+                <select id="customSource">
+                  <option value="custom">Manual (Custom)</option>
+                  <option value="photo-manual">Photo (manual via ChatGPT)</option>
+                </select>
+              </label>
               <button type="submit">Use custom nutrition</button>
             </form>
 
@@ -108,6 +116,32 @@
             </div>
             <p id="scanStatus" class="muted">Point the camera at an EAN/UPC barcode.</p>
             <div id="scanResult" class="stack"></div>
+          </div>
+        </section>
+
+
+        <section id="screen-photo" class="screen" aria-labelledby="photoTitle">
+          <h2 id="photoTitle">Photo Workflow (manual)</h2>
+          <div class="card form-grid">
+            <label>
+              Take or choose meal photo
+              <input id="photoInput" type="file" accept="image/*" capture="environment" />
+            </label>
+            <img id="photoPreview" class="photo-preview" alt="Meal preview" hidden />
+
+            <button type="button" id="copyPromptBtn">Copy ChatGPT Prompt</button>
+
+            <div class="card">
+              <h3>Instructions</h3>
+              <ol>
+                <li>Open ChatGPT app</li>
+                <li>Upload photo</li>
+                <li>Paste prompt</li>
+                <li>Return and log manually</li>
+              </ol>
+            </div>
+
+            <p id="photoStatus" class="muted"></p>
           </div>
         </section>
 

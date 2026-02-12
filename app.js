@@ -42,6 +42,13 @@ import {
   showAddStatus
 } from './src/ui.js';
 
+const CHATGPT_PHOTO_PROMPT = `Look at this meal photo. List the foods you can clearly identify.
+If uncertain, ask clarifying questions.
+Do NOT guess portion sizes.
+Ask me for grams or pieces for each item.
+Also ask whether oil, butter, or sauce was used.
+Output as a checklist.`;
+
 const state = {
   route: 'persons',
   persons: [],
@@ -263,7 +270,9 @@ async function logActiveFood() {
         ? 'Manual (Generic built-in)'
         : active.sourceType === 'barcode'
           ? 'Barcode (Open Food Facts)'
-          : 'Manual (Custom)';
+          : active.sourceType === 'photo-manual'
+            ? 'Photo (manual via ChatGPT)'
+            : 'Manual (Custom)';
 
   await addEntry({
     personId: usedPersonId,
@@ -340,14 +349,16 @@ async function handleCustomFoodSubmit(e) {
     f100g: Number(document.getElementById('customF').value)
   };
 
+  const selectedSource = document.getElementById('customSource').value || 'custom';
+
   await openPortionForItem({
     foodId: `custom:${label.toLowerCase().replace(/\s+/g, '_')}`,
     label,
     nutrition,
     pieceGramHint: null,
-    sourceType: 'custom',
+    sourceType: selectedSource,
     isGeneric: false,
-    groupLabel: 'Custom'
+    groupLabel: selectedSource === 'photo-manual' ? 'Photo (manual via ChatGPT)' : 'Custom'
   });
 }
 
@@ -463,6 +474,34 @@ async function handleDeleteAllData() {
 }
 
 
+function setPhotoStatus(message) {
+  const el = document.getElementById('photoStatus');
+  if (el) el.textContent = message;
+}
+
+async function handleCopyPhotoPrompt() {
+  try {
+    await navigator.clipboard.writeText(CHATGPT_PHOTO_PROMPT);
+    setPhotoStatus('Prompt copied. Open ChatGPT, upload the photo, paste prompt, then return to log manually.');
+  } catch (error) {
+    console.error(error);
+    setPhotoStatus('Could not copy automatically. Please copy the prompt manually.');
+  }
+}
+
+function handlePhotoSelected(file) {
+  if (!file) return;
+  const preview = document.getElementById('photoPreview');
+  const reader = new FileReader();
+  reader.onload = () => {
+    preview.src = reader.result;
+    preview.hidden = false;
+    setPhotoStatus('Photo preview ready. Use “Copy ChatGPT Prompt” and follow instructions below.');
+  };
+  reader.readAsDataURL(file);
+}
+
+
 async function registerServiceWorker() {
   if (!('serviceWorker' in navigator)) return;
   try {
@@ -526,6 +565,11 @@ function wireEvents() {
     const btn = e.target.closest('#logScannedProductBtn');
     if (!btn || !state.scannedProduct) return;
     await openPortionForItem(toScannedFoodItem(state.scannedProduct));
+  });
+
+  document.getElementById('copyPromptBtn').addEventListener('click', handleCopyPhotoPrompt);
+  document.getElementById('photoInput').addEventListener('change', (e) => {
+    handlePhotoSelected(e.target.files?.[0]);
   });
 
   document.getElementById('portionPresetButtons').addEventListener('click', (e) => {
