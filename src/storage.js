@@ -1,5 +1,5 @@
 const DB_NAME = 'macroTrackerDB';
-const DB_VERSION = 4;
+const DB_VERSION = 3;
 
 function promisify(req) {
   return new Promise((resolve, reject) => {
@@ -29,51 +29,6 @@ function ensureIndex(store, indexName, keyPath, options) {
   }
 }
 
-
-function toNonNegativeNumber(value) {
-  const n = Number(value);
-  return Number.isFinite(n) && n >= 0 ? n : null;
-}
-
-function normalizeEntryForStorage(entry) {
-  const kcal = toNonNegativeNumber(entry?.kcal);
-  const p = toNonNegativeNumber(entry?.p);
-  const c = toNonNegativeNumber(entry?.c);
-  const f = toNonNegativeNumber(entry?.f);
-  const amountGrams = toNonNegativeNumber(entry?.amountGrams);
-
-  if (kcal === null || p === null || c === null || f === null || amountGrams === null) {
-    throw new Error('Invalid entry nutrition values: kcal/macros/grams must be non-negative numbers');
-  }
-
-  return {
-    ...entry,
-    kcal,
-    p,
-    c,
-    f,
-    amountGrams
-  };
-}
-
-function normalizeWeightLogForImport(item) {
-  const scaleWeight = Number(item?.scaleWeight);
-  if (!Number.isFinite(scaleWeight) || scaleWeight <= 0) return null;
-  const trendWeight = Number(item?.trendWeight);
-
-  return {
-    ...item,
-    scaleWeight,
-    trendWeight: Number.isFinite(trendWeight) && trendWeight > 0 ? trendWeight : null
-  };
-}
-
-function shiftIsoDate(isoDate, dayDelta) {
-  const date = new Date(`${isoDate}T00:00:00`);
-  date.setDate(date.getDate() + dayDelta);
-  return date.toISOString().slice(0, 10);
-}
-
 export function openDb() {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
@@ -87,14 +42,12 @@ export function openDb() {
       ensureStore(db, 'productsCache', { keyPath: 'barcode' });
       let favorites = ensureStore(db, 'favorites', { keyPath: 'id' });
       let recents = ensureStore(db, 'recents', { keyPath: 'id' });
-      let weightLogs = ensureStore(db, 'weightLogs', { keyPath: 'id' });
       ensureStore(db, 'meta', { keyPath: 'key' });
 
       if (!persons) persons = tx.objectStore('persons');
       if (!entries) entries = tx.objectStore('entries');
       if (!favorites) favorites = tx.objectStore('favorites');
       if (!recents) recents = tx.objectStore('recents');
-      if (!weightLogs) weightLogs = tx.objectStore('weightLogs');
 
       ensureIndex(entries, 'byPersonDate', ['personId', 'date']);
       ensureIndex(entries, 'byPersonDateTime', ['personId', 'date', 'time']);
@@ -105,10 +58,6 @@ export function openDb() {
 
       ensureIndex(recents, 'byPersonUsedAt', ['personId', 'usedAt']);
       ensureIndex(recents, 'byPersonFood', ['personId', 'foodId']);
-
-      ensureIndex(weightLogs, 'byPerson', 'personId');
-      ensureIndex(weightLogs, 'byDate', 'date');
-      ensureIndex(weightLogs, 'byPersonDate', ['personId', 'date'], { unique: true });
 
       if (oldVersion < 2) {
         const cursorReq = persons.openCursor();
@@ -131,12 +80,11 @@ export function openDb() {
 
 export async function seedSampleData() {
   const db = await openDb();
-  const tx = db.transaction(['persons', 'entries', 'meta', 'favorites', 'recents', 'weightLogs'], 'readwrite');
+  const tx = db.transaction(['persons', 'entries', 'meta', 'favorites', 'recents'], 'readwrite');
   tx.objectStore('persons').clear();
   tx.objectStore('entries').clear();
   tx.objectStore('favorites').clear();
   tx.objectStore('recents').clear();
-  tx.objectStore('weightLogs').clear();
 
   const persons = [
     { id: crypto.randomUUID(), name: 'Alex', kcalGoal: 2200, macroTargets: { p: 160, c: 240, f: 70 } },
@@ -198,7 +146,7 @@ export async function upsertPerson(person) {
 
 export async function deletePersonCascade(personId) {
   const db = await openDb();
-  const tx = db.transaction(['persons', 'entries', 'favorites', 'recents', 'weightLogs'], 'readwrite');
+  const tx = db.transaction(['persons', 'entries', 'favorites', 'recents'], 'readwrite');
   tx.objectStore('persons').delete(personId);
 
   const deleteByIndex = (storeName, indexName, keyRange) => {
@@ -215,7 +163,6 @@ export async function deletePersonCascade(personId) {
   deleteByIndex('entries', 'byPerson', IDBKeyRange.only(personId));
   deleteByIndex('favorites', 'byPerson', IDBKeyRange.only(personId));
   deleteByIndex('recents', 'byPersonUsedAt', IDBKeyRange.bound([personId, 0], [personId, Number.MAX_SAFE_INTEGER]));
-  deleteByIndex('weightLogs', 'byPerson', IDBKeyRange.only(personId));
 
   await txDone(tx);
 }
@@ -227,16 +174,7 @@ export async function getEntriesForPersonDate(personId, date) {
   return promisify(idx.getAll([personId, date]));
 }
 
-export async function getEntriesForPersonDateRange(personId, startDate, endDate) {
-  const db = await openDb();
-  const tx = db.transaction('entries', 'readonly');
-  const idx = tx.objectStore('entries').index('byPersonDate');
-  const range = IDBKeyRange.bound([personId, startDate], [personId, endDate]);
-  return promisify(idx.getAll(range));
-}
-
 export async function addEntry(entry) {
-  const sanitizedEntry = normalizeEntryForStorage(entry);
   const db = await openDb();
   const tx = db.transaction(['entries', 'recents', 'meta'], 'readwrite');
   const stored = {
@@ -246,10 +184,10 @@ export async function addEntry(entry) {
   };
   tx.objectStore('entries').put(stored);
 
-  if (sanitizedEntry.recentItem) {
+  if (entry.recentItem) {
     const recentsStore = tx.objectStore('recents');
     const byPersonFood = recentsStore.index('byPersonFood');
-    const key = [sanitizedEntry.personId, sanitizedEntry.recentItem.foodId];
+    const key = [entry.personId, entry.recentItem.foodId];
     const existingReq = byPersonFood.get(key);
     existingReq.onsuccess = () => {
       const existing = existingReq.result;
@@ -258,19 +196,19 @@ export async function addEntry(entry) {
       }
       recentsStore.put({
         id: crypto.randomUUID(),
-        personId: sanitizedEntry.personId,
-        foodId: sanitizedEntry.recentItem.foodId,
-        label: sanitizedEntry.recentItem.label,
-        nutrition: sanitizedEntry.recentItem.nutrition,
-        pieceGramHint: sanitizedEntry.recentItem.pieceGramHint ?? null,
-        sourceType: sanitizedEntry.recentItem.sourceType,
+        personId: entry.personId,
+        foodId: entry.recentItem.foodId,
+        label: entry.recentItem.label,
+        nutrition: entry.recentItem.nutrition,
+        pieceGramHint: entry.recentItem.pieceGramHint ?? null,
+        sourceType: entry.recentItem.sourceType,
         usedAt: Date.now()
       });
     };
   }
 
-  if (sanitizedEntry.lastPortionKey) {
-    tx.objectStore('meta').put({ key: `lastPortion:${sanitizedEntry.lastPortionKey}`, value: Number(sanitizedEntry.amountGrams) });
+  if (entry.lastPortionKey) {
+    tx.objectStore('meta').put({ key: `lastPortion:${entry.lastPortionKey}`, value: Number(entry.amountGrams) });
   }
 
   await txDone(tx);
@@ -359,15 +297,14 @@ function uniqueById(items, idKey = 'id') {
 
 export async function exportAllData() {
   const db = await openDb();
-  const tx = db.transaction(['persons', 'entries', 'productsCache', 'favorites', 'recents', 'weightLogs'], 'readonly');
+  const tx = db.transaction(['persons', 'entries', 'productsCache', 'favorites', 'recents'], 'readonly');
 
-  const [persons, entries, productsCache, favorites, recents, weightLogs] = await Promise.all([
+  const [persons, entries, productsCache, favorites, recents] = await Promise.all([
     promisify(tx.objectStore('persons').getAll()),
     promisify(tx.objectStore('entries').getAll()),
     promisify(tx.objectStore('productsCache').getAll()),
     promisify(tx.objectStore('favorites').getAll()),
-    promisify(tx.objectStore('recents').getAll()),
-    promisify(tx.objectStore('weightLogs').getAll())
+    promisify(tx.objectStore('recents').getAll())
   ]);
 
   return {
@@ -377,37 +314,28 @@ export async function exportAllData() {
     entries,
     productsCache,
     favorites,
-    recents,
-    weightLogs
+    recents
   };
 }
 
 export async function importAllData(payload) {
   const db = await openDb();
-  const tx = db.transaction(['persons', 'entries', 'productsCache', 'favorites', 'recents', 'weightLogs', 'meta'], 'readwrite');
+  const tx = db.transaction(['persons', 'entries', 'productsCache', 'favorites', 'recents', 'meta'], 'readwrite');
 
-  const storesToReset = ['persons', 'entries', 'productsCache', 'favorites', 'recents', 'weightLogs'];
+  const storesToReset = ['persons', 'entries', 'productsCache', 'favorites', 'recents'];
   storesToReset.forEach((storeName) => tx.objectStore(storeName).clear());
 
   const persons = uniqueById(payload.persons || []);
-  const entries = uniqueById(payload.entries || []).map((item) => {
-    try {
-      return normalizeEntryForStorage(item);
-    } catch (error) {
-      return null;
-    }
-  }).filter(Boolean);
+  const entries = uniqueById(payload.entries || []);
   const productsCache = uniqueById(payload.productsCache || [], 'barcode');
   const favorites = uniqueById(payload.favorites || []);
   const recents = uniqueById(payload.recents || []);
-  const weightLogs = uniqueById(payload.weightLogs || []).map(normalizeWeightLogForImport).filter(Boolean);
 
   persons.forEach((item) => tx.objectStore('persons').put(item));
   entries.forEach((item) => tx.objectStore('entries').put(item));
   productsCache.forEach((item) => tx.objectStore('productsCache').put(item));
   favorites.forEach((item) => tx.objectStore('favorites').put(item));
   recents.forEach((item) => tx.objectStore('recents').put(item));
-  weightLogs.forEach((item) => tx.objectStore('weightLogs').put(item));
 
   tx.objectStore('meta').put({ key: 'lastImportAt', value: new Date().toISOString() });
 
@@ -417,15 +345,14 @@ export async function importAllData(payload) {
     entries: entries.length,
     productsCache: productsCache.length,
     favorites: favorites.length,
-    recents: recents.length,
-    weightLogs: weightLogs.length
+    recents: recents.length
   };
 }
 
 export async function deleteAllData() {
   const db = await openDb();
-  const tx = db.transaction(['persons', 'entries', 'productsCache', 'favorites', 'recents', 'weightLogs', 'meta'], 'readwrite');
-  ['persons', 'entries', 'productsCache', 'favorites', 'recents', 'weightLogs', 'meta'].forEach((storeName) => {
+  const tx = db.transaction(['persons', 'entries', 'productsCache', 'favorites', 'recents', 'meta'], 'readwrite');
+  ['persons', 'entries', 'productsCache', 'favorites', 'recents', 'meta'].forEach((storeName) => {
     tx.objectStore(storeName).clear();
   });
   await txDone(tx);
@@ -444,79 +371,4 @@ export async function upsertCachedProduct(product) {
   tx.objectStore('productsCache').put(product);
   await txDone(tx);
   return product;
-}
-
-
-
-export async function addWeightLog(personId, date, scaleWeight) {
-  const safeWeight = Number(scaleWeight);
-  if (!Number.isFinite(safeWeight) || safeWeight <= 0) {
-    throw new Error('Invalid weight value');
-  }
-
-  const db = await openDb();
-  const existingTx = db.transaction('weightLogs', 'readonly');
-  const byPersonDate = existingTx.objectStore('weightLogs').index('byPersonDate');
-  const existing = await promisify(byPersonDate.get([personId, date]));
-
-  const tx = db.transaction('weightLogs', 'readwrite');
-  const store = tx.objectStore('weightLogs');
-  const rowId = existing?.id || crypto.randomUUID();
-  store.put({
-    id: rowId,
-    personId,
-    date,
-    scaleWeight: safeWeight,
-    trendWeight: null
-  });
-  await txDone(tx);
-
-  const startDate = shiftIsoDate(date, -6);
-  const recent = await getWeightLogsInRange(personId, startDate, date);
-  const valid = recent.map((item) => Number(item.scaleWeight)).filter((v) => Number.isFinite(v) && v > 0);
-  const trendWeight = valid.length ? Math.round((valid.reduce((sum, v) => sum + v, 0) / valid.length) * 10) / 10 : null;
-
-  const trendTx = db.transaction('weightLogs', 'readwrite');
-  trendTx.objectStore('weightLogs').put({
-    id: rowId,
-    personId,
-    date,
-    scaleWeight: safeWeight,
-    trendWeight
-  });
-  await txDone(trendTx);
-
-  return { id: rowId, personId, date, scaleWeight: safeWeight, trendWeight };
-}
-
-
-export async function getWeightLogsByPerson(personId) {
-  const db = await openDb();
-  const tx = db.transaction('weightLogs', 'readonly');
-  const idx = tx.objectStore('weightLogs').index('byPersonDate');
-  const range = IDBKeyRange.bound([personId, '0000-01-01'], [personId, '9999-12-31']);
-
-  return new Promise((resolve, reject) => {
-    const out = [];
-    const req = idx.openCursor(range, 'prev');
-    req.onsuccess = () => {
-      const cursor = req.result;
-      if (!cursor) {
-        resolve(out);
-        return;
-      }
-      out.push(cursor.value);
-      cursor.continue();
-    };
-    req.onerror = () => reject(req.error);
-  });
-}
-
-export async function getWeightLogsInRange(personId, startDate, endDate) {
-  const db = await openDb();
-  const tx = db.transaction('weightLogs', 'readonly');
-  const idx = tx.objectStore('weightLogs').index('byPersonDate');
-  const range = IDBKeyRange.bound([personId, startDate], [personId, endDate]);
-
-  return promisify(idx.getAll(range));
 }

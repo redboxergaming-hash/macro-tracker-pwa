@@ -77,12 +77,7 @@ export function renderPersonPicker(persons, selectedId) {
     : '<option value="">No persons</option>';
   el('personPicker').innerHTML = html;
   el('addPersonPicker').innerHTML = html;
-  const analyticsPicker = el('analyticsPersonPicker');
-  if (analyticsPicker) analyticsPicker.innerHTML = html;
-  const nutritionPicker = el('nutritionPersonPicker');
-  if (nutritionPicker) nutritionPicker.innerHTML = html;
 }
-
 
 export function renderDashboard(person, date, entries) {
   const totals = sumEntries(entries);
@@ -172,19 +167,6 @@ export function readPersonForm() {
   };
 }
 
-
-export function renderGenericCategoryFilters(categories, selectedCategory) {
-  const wrap = el('genericCategoryFilters');
-  if (!wrap) return;
-
-  wrap.innerHTML = categories
-    .map((category) => {
-      const active = category.value === selectedCategory;
-      return `<button type="button" class="filter-chip ${active ? 'active' : ''}" data-action="filter-category" data-category="${category.value}">${category.label}</button>`;
-    })
-    .join('');
-}
-
 function renderFoodList(containerId, items, favoritesSet, emptyText) {
   const wrap = el(containerId);
   if (!items.length) {
@@ -199,7 +181,7 @@ function renderFoodList(containerId, items, favoritesSet, emptyText) {
         <div>
           <strong>${item.label}</strong>
           <div class="muted tiny">${item.groupLabel}</div>
-          ${item.isGeneric ? `<div class="muted tiny">Generic built-in (approx.) · ${item.category || 'Uncategorized'}</div>` : ''}
+          ${item.isGeneric ? '<div class="muted tiny">Generic built-in (approx.)</div>' : ''}
         </div>
         <div class="suggestion-actions">
           <span class="star" data-action="toggle-favorite" data-food-id="${item.foodId}" role="button" aria-label="Toggle favorite">${star}</span>
@@ -282,90 +264,4 @@ export function renderScanResult(product) {
       <button type="button" id="logScannedProductBtn">Log via portion picker</button>
     </div>
   </article>`;
-}
-
-
-export function setAnalyticsStatus(message) {
-  const target = el('analyticsStatus');
-  if (target) target.textContent = message;
-}
-
-export function renderWeightLogs(logs) {
-  const wrap = el('weightLogsList');
-  if (!wrap) return;
-  if (!logs.length) {
-    wrap.innerHTML = '<p class="muted">No weight logs yet.</p>';
-    return;
-  }
-
-  wrap.innerHTML = `<table>
-    <thead><tr><th>Date</th><th>Scale</th><th>Trend</th></tr></thead>
-    <tbody>
-      ${logs
-        .slice(0, 7)
-        .map(
-          (row) => `<tr><td>${row.date}</td><td>${row.scaleWeight}</td><td>${row.trendWeight == null ? '—' : row.trendWeight}</td></tr>`
-        )
-        .join('')}
-    </tbody>
-  </table>`;
-}
-
-
-export function renderInsightMetrics(metrics) {
-  const wrap = el('insightMetrics');
-  if (!wrap) return;
-
-  const items = [
-    { key: 'cal3d', label: '3-day calorie change' },
-    { key: 'cal7d', label: '7-day calorie change' },
-    { key: 'wt3d', label: '3-day weight change' },
-    { key: 'wt7d', label: '7-day weight change' }
-  ];
-
-  wrap.innerHTML = items
-    .map(({ key, label }) => {
-      const value = metrics?.[key] || { text: 'Not enough data' };
-      return `<div class="insight-item"><strong>${label}</strong><div>${value.text}</div></div>`;
-    })
-    .join('');
-}
-
-
-function formatMicronutrientTotal(value) {
-  const rounded = Math.round(value * 100) / 100;
-  return `${rounded}g`;
-}
-
-function micronutrientProgress(total, target) {
-  if (!Number.isFinite(target) || target <= 0) return 0;
-  return Math.max(0, Math.min(1, total / target));
-}
-
-export function renderNutritionOverview(items) {
-  const wrap = el('nutritionOverviewList');
-  if (!wrap) return;
-
-  if (!items.length) {
-    wrap.innerHTML = '<p class="muted">No micronutrient data available</p>';
-    return;
-  }
-
-  wrap.innerHTML = items
-    .map((item) => {
-      const targetLabel = Number.isFinite(item.target) && item.target > 0 ? `${Math.round(item.target * 100) / 100}g` : '—';
-      const percentageLabel = Number.isFinite(item.percentage) ? `${Math.round(item.percentage)}%` : '—';
-      const progressValue = micronutrientProgress(item.total, item.target);
-      return `<article class="card micronutrient-item">
-        <div class="row-actions" style="justify-content:space-between;">
-          <strong>${item.label}</strong>
-          <span>${formatMicronutrientTotal(item.total)}</span>
-        </div>
-        <div class="progress-row">
-          <progress max="1" value="${progressValue}"></progress>
-        </div>
-        <p class="muted tiny">Target: ${targetLabel} • ${percentageLabel}</p>
-      </article>`;
-    })
-    .join('');
 }

@@ -12,7 +12,6 @@ const APP_SHELL_ASSETS = [
   './src/storage.js',
   './src/ui.js',
   './src/math.js',
-  './src/analyticsChart.js',
   './src/genericFoods.js',
   './src/offClient.js',
   './src/scanner.js'

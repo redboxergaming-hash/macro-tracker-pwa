@@ -22,8 +22,6 @@
         <button data-route="add" class="tab">Add Entry</button>
         <button data-route="scan" class="tab">Scan</button>
         <button data-route="photo" class="tab">Photo</button>
-        <button data-route="analytics" class="tab">Analytics</button>
-        <button data-route="nutrition" class="tab">Nutrition</button>
         <button data-route="settings" class="tab">Settings</button>
       </nav>
 
@@ -81,7 +79,6 @@
 
             <section>
               <h3>Search results</h3>
-              <div id="genericCategoryFilters" class="filter-row" role="toolbar" aria-label="Generic food category filters"></div>
               <div id="addSuggestions" class="suggestions"></div>
             </section>
 
@@ -148,48 +145,6 @@
           </div>
         </section>
 
-
-        <section id="screen-analytics" class="screen" aria-labelledby="analyticsTitle">
-          <h2 id="analyticsTitle">Analytics</h2>
-          <div class="card form-grid">
-            <div class="inline-controls">
-              <label>
-                Person
-                <select id="analyticsPersonPicker"></select>
-              </label>
-              <label>
-                Date
-                <input id="weightDateInput" type="date" />
-              </label>
-              <label>
-                Scale weight
-                <input id="weightValueInput" type="number" step="0.1" min="1" placeholder="e.g. 72.4" />
-              </label>
-            </div>
-            <div class="row-actions">
-              <button type="button" id="saveWeightBtn">Save weight</button>
-            </div>
-            <p id="analyticsStatus" class="muted"></p>
-          </div>
-
-          <div class="card form-grid">
-            <h3>Insights</h3>
-            <div id="insightMetrics" class="insight-grid"></div>
-            <div class="range-toggle" id="analyticsRangeToggle">
-              <button type="button" class="range-btn active" data-range="1W">1W</button>
-              <button type="button" class="range-btn" data-range="1M">1M</button>
-              <button type="button" class="range-btn" data-range="3M">3M</button>
-              <button type="button" class="range-btn" data-range="ALL">All</button>
-            </div>
-            <canvas id="analyticsChart" height="220" aria-label="Weekly analytics chart"></canvas>
-          </div>
-
-          <div class="card">
-            <h3>Last 7 weight entries</h3>
-            <div id="weightLogsList"></div>
-          </div>
-        </section>
-
         <section id="screen-settings" class="screen" aria-labelledby="settingsTitle">
           <h2 id="settingsTitle">Settings · Persons</h2>
 
@@ -231,21 +186,6 @@
           </section>
 
           <button id="seedBtn" class="secondary">Reset Sample Data</button>
-        </section>
-
-        <section id="screen-nutrition" class="screen" aria-labelledby="nutritionTitle">
-          <h2 id="nutritionTitle">Nutrition Overview</h2>
-          <div class="inline-controls">
-            <label>
-              Person
-              <select id="nutritionPersonPicker"></select>
-            </label>
-            <label>
-              Date
-              <input id="nutritionDatePicker" type="date" />
-            </label>
-          </div>
-          <div id="nutritionOverviewList" class="stack"></div>
         </section>
       </main>
     </div>
